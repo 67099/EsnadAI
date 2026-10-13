@@ -1,0 +1,9 @@
+# the base model is downloaded by scripts/download_model.py
+models/allam-7b-instruct/
+venv/
+__pycache__/
+*.pyc
+*.log
+datasets/raw_specs.json
+# rebuilt from adapter_parts/ by scripts/join_adapter.py
+models/allam-7b-esnad-lora-v5/final_adapter/adapter_model.safetensors
