@@ -200,7 +200,7 @@ Python 3.12 with CUDA PyTorch, `transformers`, `peft`, `bitsandbytes`, `accelera
 
 To reproduce the training exactly, use the `datasets/rich_task_banks.json` and `datasets/sft_data.jsonl` in this repository. Running the task content step again calls Qwen again and writes different tasks. Also note that the shipped bank is keyed by idea and feature, `idea :: feature`, which is what `generate_synthetic_data.py` reads, while `generate_rich_task_banks.py` in its current form writes one whole-project list per idea. It would need adjusting to rebuild the shipped file.
 
-Some scripts contain paths from the machine where they were written, for example `C:\Users\kimat\esnad-ai-training` and `C:/Users/kimat/GP2-Cl/services/aiEngine`. The second one is the Esnad platform repository, which supplies `buildPrompt()`. Change these paths to your own before running.
+Some scripts contain paths from the machine where they were written, for example `C:\Users\<name>\esnad-ai-training` and `C:/Users/<name>/GP2-Cl/services/aiEngine`. The second one is the Esnad platform repository, which supplies `buildPrompt()`. Change these paths to your own before running.
 
 ## Next steps
 
@@ -221,4 +221,4 @@ Some scripts contain paths from the machine where they were written, for example
 
 ## Status and license
 
-Private repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Islamic University. The adapter is a derivative of ALLaM-7B-Instruct-preview and follows its Apache-2.0 license. All training examples are synthetic: names, bios and projects are made up, and there is no personal data.
+Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Islamic University. The adapter is a derivative of ALLaM-7B-Instruct-preview and follows its Apache-2.0 license. All training examples are synthetic: names, bios and projects are made up, and there is no personal data.
