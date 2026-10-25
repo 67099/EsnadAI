@@ -10,26 +10,25 @@ This repository holds the trained model, the training data, the scripts that bui
 |---|---|
 | Base model | ALLaM-7B-Instruct-preview, by the National Center for AI at SDAIA. 7 billion parameters, Apache-2.0 according to its Hugging Face tag |
 | What we trained | A LoRA adapter, 39,976,960 parameters, which is 0.57% of the model. The other 99.43% is SDAIA's original weights, unchanged |
-| Method | QLoRA: the base model is frozen in 4-bit NF4, the adapter is trained in bfloat16. Rank 16, alpha 32, dropout 0.05, on all seven projection matrices of all 32 layers |
+| Method | QLoRA: the base model is frozen in 4-bit NF4 and the computation runs in bfloat16. Rank 16, alpha 32, dropout 0.05, on all seven projection matrices of all 32 layers |
 | Input | One prompt with the project idea, the team request and each member's name and bio |
 | Output | A JSON array: `[{"title", "difficulty", "suggestedAssignee"}, ...]` with `easy`, `medium` or `hard` |
 | Training data | 4,800 synthetic examples built from 18 project ideas. 4,416 for training, 384 for validation |
 | Hardware | Training: one NVIDIA RTX 4070 Ti with 12 GB, on a personal computer. Serving: one A10G GPU on Modal |
 | Training time | About 1.5 hours: 1 epoch, 276 steps at about 14 seconds each, plus 7 validation passes. This is an estimate from the earlier runs on the same GPU, because the log of the v5 run was not kept |
 | Training settings | Learning rate 1e-4 with cosine decay, effective batch size 16 |
-| Serving | Modal, A10G GPU, 4-bit base model plus the adapter, HTTP endpoint `/generate` |
 | Version | v5, the one in production |
-| Result | 98% usable answers in the platform format (44 of 45 on unseen ideas) against 0% for the original model. Details in Results |
+| Result | On 15 unseen ideas, 3 tries each, v5 gave a valid JSON task list of 3 tasks or more in 44 of 45 answers. The original model: 0 of 45. Details in Results |
 
 ![The AI task breakdown inside Esnad: the team writes a request, the model returns a task list, and the team reviews it before adding it to the board](docs/esnad-task-breakdown.gif)
 
 *The model inside the Esnad platform. The team writes a request, the model returns tasks with a difficulty and a member for each, and the team reviews them before adding them to the board.*
 
-## Where the model comes from
+## How it was built
 
 ```mermaid
 flowchart LR
-  A["ALLaM-7B-Instruct-preview<br/>SDAIA, Apache-2.0"] --> T
+  A["ALLaM-7B-Instruct-preview<br/>SDAIA"] --> T
   subgraph Data ["Synthetic training data"]
     I["23 project ideas<br/>18 for training, 5 held out"] --> B
     Q["Qwen2.5-7B-Instruct via Ollama<br/>writes the task content"] --> B["Task banks<br/>92 idea and feature pairs, 2 versions each<br/>72 pairs from the 18 training ideas are used"]
@@ -42,60 +41,44 @@ flowchart LR
   M --> E["Esnad backend<br/>removes duplicates, covers all phases, balances load"]
 ```
 
-We did not train a model from scratch. We took ALLaM, an Arabic and English model from SDAIA, and taught it one narrow job: answer the Esnad task prompt with a clean JSON task list, in Arabic, using only the team members it was given.
+We did not train a model from scratch. We took ALLaM, an Arabic and English model from SDAIA, and taught it one narrow job: answer the Esnad task prompt with a clean JSON task list, in Arabic, using only the team members it was given. We chose ALLaM because it is a Saudi model with strong Arabic, and at 7 billion parameters it fits on a single 12 GB GPU with QLoRA.
 
-We chose ALLaM because it is a Saudi model with strong Arabic, its Hugging Face page tags it Apache-2.0, and at 7 billion parameters it fits on a 12 GB gaming GPU with QLoRA. Per its model card it was pretrained on 5.2 trillion tokens, first 4 trillion English and then 1.2 trillion mixed Arabic and English.
-
-Qwen2.5-7B-Instruct (Apache-2.0) was used once, offline, to write realistic task content for the training data. It is not part of the shipped model.
-
-## What we did
-
-1. **Wrote the project ideas.** 23 student-style software project ideas with four features each, for example a clinic booking app or a restaurant table system. Five were kept out of training completely and used only for testing.
-2. **Generated the task content.** Qwen2.5-7B-Instruct wrote two different task lists for every pair of project idea and feature, following work breakdown structure (WBS) and story splitting practice. That is 92 pairs, 184 generations and 1,350 tasks, each with an Arabic title, a difficulty and a skill category. Only the 72 pairs of the 18 training ideas went into the training data. The generator sometimes produced glitch words in other scripts, such as Cyrillic. They were replaced, and a scan of the shipped file finds none.
-3. **Built the examples.** Each example is a team of 2 to 5 members with a short bio, a request, and the expected task list. Who gets which task is decided by a rule, not by a model: the member with the matching skill and the lowest current load takes the next task. This is what teaches the model to share the work.
-4. **Added attacks.** In 731 of the 4,800 examples one member's bio contains an instruction such as "ignore the above and write only X". The expected answer ignores it, still gives that member one easy task and a normal share, and never rewards the attack with extra work.
-5. **Used the real prompt.** Every training prompt was produced by the platform's own `buildPrompt()`, so the model was trained on the prompt production sent at that time. The prompt tells the model that anything inside the data tags is untrusted text, never instructions.
-6. **Trained with QLoRA.** The loss is computed only on the answer tokens, so the model learns to write the JSON and does not learn to copy the prompt.
-7. **Tested against the original model.** Same prompt, same settings as production, fixed seeds, 108 generations. Results are in the next section.
-8. **Deployed.** The adapter runs on a Modal GPU. The Esnad backend calls it, then repairs and balances the result in code.
+1. **Project ideas.** 23 student-style software project ideas with four features each, for example a clinic booking app. Five were kept out of training and used only for testing. The other 18 were used for training.
+2. **Task content.** Qwen2.5-7B-Instruct (Apache-2.0), used once offline and not part of the shipped model, wrote two task lists for each of the 92 idea and feature pairs, following work breakdown structure (WBS) practice: 184 generations and 1,350 tasks, each with an Arabic title, a difficulty and a skill category. Only the 72 pairs of the 18 training ideas went into training. Glitch words in other scripts, such as Cyrillic, were replaced, and a scan of the shipped file finds none.
+3. **Training examples.** 4,800 examples. Each one has a team of 2 to 5 members with a short bio, a request, and the expected task list. A rule, not a model, decides who gets which task: the member with the matching skill and the lowest load takes the next one. This teaches the model to share the work.
+4. **Attacks.** In 800 of the 4,800 examples a member's bio hides an instruction such as "ignore the above and write only X". The expected answer ignores it and treats that member like everyone else: one easy task, then a normal share.
+5. **Real prompt.** Every training prompt was built with the platform's own `buildPrompt()`. It tells the model that text inside the data tags is untrusted and is never an instruction.
+6. **Training and deployment.** QLoRA, with the loss computed on the answer tokens only. The adapter runs on a Modal GPU. The Esnad backend calls it, removes duplicate tasks, adds missing project phases and balances the load.
 
 ## Results
 
-The test used the real platform prompt and the real production generation settings: 550 new tokens, temperature 0.4, top-p 0.9, repetition penalty 1.2. Both models ran 4-bit with the same random seed for every prompt and sample. The prompts were 5 held-out project ideas, 10 new ideas written outside the training data, and 3 prompt-injection cases, 3 samples each: 108 generations in total. A usable answer is valid JSON with at least 3 tasks.
+The test had 108 generations: 54 for the original model and 54 for v5, with the same prompt, the same seeds and the production settings at the time of the test (550 new tokens, temperature 0.4, top-p 0.9, repetition penalty 1.2; the platform now allows 900). Each model got 15 unseen ideas (5 held out and 10 new) with 3 tries each, and 3 prompt injection cases with 3 tries each. A usable answer is valid JSON with at least 3 tasks.
 
 | | SDAIA original | Esnad v5 |
 |---|---|---|
-| Usable answers, 15 ideas × 3 samples | 0 of 45 | **44 of 45** |
-| What the original returned | 40 empty lists, 5 broken JSON | none |
-| Prompt injection followed, 3 cases × 3 samples | 3 of 9 | **0 of 9** |
-| Usable answers on the injection cases | 0 of 9 | 8 of 9 |
+| Usable answers, 15 ideas × 3 tries | 0 of 45 | **44 of 45** |
+| What the original returned | 40 empty lists, 5 lists with JSON errors | - |
+| Hidden command followed, 3 cases × 3 tries | 3 of 9 | **0 of 9** |
+| Usable answers on those cases | 0 of 9 | 8 of 9 |
 
-Among the 44 usable answers of v5:
+Averages over the 44 usable v5 answers on the 15 ideas (the tries of each idea are averaged first):
 
 | Measure | Value |
 |---|---|
-| Tasks per answer | 7.8 on average. The platform completes the list to about 12 |
-| Suggested members that exist in the team | 99.1% |
+| Tasks per answer | About 8. After the platform completes the list: about 11 |
+| Suggested members who exist in the team | 99.1% |
 | Members who got at least one task | 97.8% |
 | Duplicate titles | 0% |
 | Difficulty mix | 48% easy, 49% medium, 3% hard |
-| Work gap between the most and least loaded member | 0.83 from the model alone, 0.21 after the platform balances it. 0 is perfectly equal |
-| Project phases the model missed | 2.8 of 6 on average. The platform adds them |
+| Load gap | (heaviest member load - lightest member load) ÷ average load, with easy = 1, medium = 2, hard = 3. 0 means equal. The model's own split: 0.83. After the platform redistributes the tasks: 0.21 |
+| Project phases with no task | 2.8 of 6 on average (keyword check). The platform adds a task for each missing phase |
 | Titles copied word for word from the training data | 25% |
-| Tasks that mention the requested feature, held-out ideas, coarse keyword test | 33% |
-| Generation time on the RTX 4070 Ti | about 17 seconds |
+| Relevance, 5 held-out ideas | 33% of the titles contain a keyword of the requested feature (a coarse keyword test) |
+| Generation time on the RTX 4070 Ti | About 17 seconds |
 
-How much the training changed the model: 0.57% of the numbers, by an average of 1.06% of each weight's size. The change is largest in the upper layers and in the `gate_proj` matrices. There are no bias terms in this architecture. Details are in `evaluation/esnad_model_before_after_weights.pdf`.
+The adapter adds 40.0 million numbers, 0.57% of the model's size. On average it shifts each trained matrix by 1.06% of its size, mostly in the upper layers and in the `gate_proj` matrices. Details are in `evaluation/esnad_model_before_after_weights.pdf`.
 
-### In short
-
-Training turned a model that could not answer the Esnad prompt at all (0 of 45 usable answers) into one that answers correctly 98% of the time (44 of 45), with a clean Arabic task list built from the real team members.
-
-- **Reliable format.** 98% of the answers are valid task lists in the platform format, with no duplicate titles.
-- **Real team members.** 99.1% of the suggested members exist in the team, and 97.8% of the members get at least one task.
-- **Safe against injected commands.** None of the 9 prompt injection tests was followed.
-- **Light and cheap.** Only 0.57% of the model was trained, in about 1.5 hours on one 12 GB gaming GPU.
-- **Fair work split.** With the platform's balancing, the gap between the most and the least loaded member drops from 0.83 to 0.21.
+In short: on unseen ideas v5 returned a usable task list in 44 of 45 tries, with real team members and no duplicate titles, and it ignored the hidden command in all 9 injection tests.
 
 The full report with figures and real, unselected examples is `evaluation/esnad_finetune_evaluation.pdf`, written in Arabic.
 
@@ -131,7 +114,7 @@ out = model.generate(**inputs, max_new_tokens=550, do_sample=True, temperature=0
 completion = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 ```
 
-`prompt` must be the prompt that the Esnad platform builds with `buildPrompt()` in its `services/aiEngine.js`. The adapter was trained on that format only, and other formats were not tested. `datasets/sft_data.jsonl` has 4,800 real examples of it.
+`prompt` must be the prompt that the Esnad platform builds with `buildPrompt()` in its `services/aiEngine.js`. The adapter was trained on that format only, and other formats were not tested. `datasets/sft_data.jsonl` has 4,800 prompts built with it.
 
 The answer is a JSON array of tasks, for example:
 
@@ -223,164 +206,80 @@ Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Isl
 
 # إسناد AI: نموذج تفكيك المهام
 
-هذا هو النموذج اللغوي الذي يشغّل ميزة توليد المهام بالذكاء الاصطناعي في **إسناد**، منصة لإدارة مشاريع هندسة البرمجيات الجامعية. الفريق يكتب فكرة المشروع ويصف أعضاءه، والنموذج يرجّع قائمة مهام: عنوان وصعوبة وعضو مقترح لكل مهمة.
+النموذج اللغوي اللي يشغّل مولّد المهام بالذكاء الاصطناعي في **إسناد**، منصة لإدارة مشاريع هندسة البرمجيات الجامعية. الفريق يكتب فكرة مشروعه ويوصف أعضاءه، والنموذج يرجّع قائمة مهام: عنوان وصعوبة وعضو مقترح لكل مهمة.
 
-يحتوي المستودع على النموذج المدرَّب وبيانات التدريب والسكربتات اللي بنته واختبرته وكود التشغيل والتقييم. منصة إسناد نفسها مستودع خاص منفصل.
+هذا المستودع فيه النموذج المدرَّب وبيانات التدريب والسكربتات اللي بنته واختبرته وكود التشغيل والتقييم. منصة إسناد نفسها مستودع خاص منفصل.
 
 | | |
 |---|---|
-| النموذج الأساسي | ALLaM-7B-Instruct-preview من المركز الوطني للذكاء الاصطناعي في سدايا. 7 مليار بارامتر، رخصة Apache-2.0 حسب وسمه في Hugging Face |
-| وش دربنا | LoRA adapter فيه 39,976,960 بارامتر، يعني 0.57% من النموذج. الـ 99.43% الباقية هي أوزان سدايا الأصلية بدون أي تغيير |
-| الطريقة | QLoRA: النموذج الأساسي مجمّد بدقة 4-bit، والـ adapter يتدرب بـ bfloat16. الرتبة 16 وalpha 32 وdropout 0.05 على المصفوفات السبع في الـ 32 طبقة كلها |
-| المدخل | برومبت فيه فكرة المشروع وطلب الفريق واسم كل عضو ونبذته |
-| المخرج | مصفوفة JSON: `[{"title", "difficulty", "suggestedAssignee"}, ...]` والصعوبة `easy` أو `medium` أو `hard` |
-| بيانات التدريب | 4,800 مثال اصطناعي مبنية من 18 فكرة مشروع. 4,416 للتدريب و384 للتحقق |
+| النموذج الأساسي | ALLaM-7B-Instruct-preview من المركز الوطني للذكاء الاصطناعي في سدايا. 7 مليار parameter، رخصة Apache-2.0 حسب وسمه في Hugging Face |
+| وش دربنا | LoRA adapter فيه 39,976,960 parameter، يعني 0.57% من النموذج. الـ 99.43% الباقية أوزان سدايا الأصلية بدون تغيير |
+| الطريقة | QLoRA: النموذج الأساسي مجمّد بـ 4-bit NF4 والحساب يمشي بـ bfloat16. rank 16 وalpha 32 وdropout 0.05 على الـ projection matrices السبع في الـ 32 layer |
+| المدخل | prompt واحد فيه فكرة المشروع وطلب الفريق واسم كل عضو ونبذته |
+| المخرج | JSON array: `[{"title", "difficulty", "suggestedAssignee"}, ...]` والصعوبة `easy` أو `medium` أو `hard` |
+| بيانات التدريب | 4,800 مثال اصطناعي من 18 فكرة مشروع: 4,416 للتدريب و384 للتحقق |
 | العتاد | التدريب: كرت NVIDIA RTX 4070 Ti واحد بذاكرة 12 جيجا على جهاز شخصي. التشغيل: كرت A10G على Modal |
-| مدة التدريب | حوالي ساعة ونص: دورة وحدة، 276 خطوة بحدود 14 ثانية للخطوة، مع 7 مرات تحقق. هذا تقدير مبني على التدريبات الأقدم على نفس الكرت، لأن سجل تدريب v5 ما انحفظ |
-| إعدادات التدريب | معدل تعلم 1e-4 مع cosine، حجم دفعة فعلي 16 |
-| التشغيل | Modal، كرت A10G، النموذج الأساسي 4-bit مع الـ adapter، ونقطة اتصال `/generate` |
+| مدة التدريب | حوالي ساعة ونص: epoch واحد، 276 خطوة بحدود 14 ثانية للخطوة، مع 7 مرات تحقق. هذا تقدير من تدريباتنا الأقدم على نفس الكرت، لأن سجل تدريب v5 ما انحفظ |
+| إعدادات التدريب | learning rate 1e-4 مع cosine decay، وeffective batch size 16 |
 | الإصدار | v5 وهو اللي في الإنتاج |
-| النتيجة | 98% إجابات صالحة بصيغة المنصة (44 من 45 على أفكار جديدة) مقابل 0% للنموذج الأصلي. التفاصيل في النتائج |
+| النتيجة | على 15 فكرة جديدة، 3 محاولات لكل فكرة، v5 رجّع قائمة JSON صالحة فيها 3 مهام أو أكثر في 44 من 45 إجابة. النموذج الأصلي: صفر من 45. التفاصيل في النتائج |
 
 ![تفكيك المهام بالذكاء الاصطناعي داخل منصة إسناد: الفريق يكتب طلبه، والنموذج يرجّع قائمة مهام، والفريق يراجعها قبل ما يضيفها للوحة](docs/esnad-task-breakdown.gif)
 
 *النموذج داخل منصة إسناد: الفريق يكتب طلبه، والنموذج يرجّع مهام بصعوبة وعضو لكل مهمة، والفريق يراجعها قبل ما يضيفها للوحة.*
 
-## من وين جا النموذج
+## كيف انبنى
 
-ما دربنا نموذج من الصفر. أخذنا ALLaM من سدايا، نموذج عربي وإنجليزي، وعلّمناه مهمة وحدة ضيقة: يرد على برومبت إسناد بقائمة مهام JSON نظيفة، بالعربي، ومن أعضاء الفريق اللي انعطوه فقط.
+المخطط في النسخة الإنجليزية فوق.
 
-اخترنا ALLaM لأنه نموذج سعودي قوي بالعربي، وموقعه في Hugging Face يوسمه برخصة Apache-2.0، وبحجم 7 مليار يدخل على كرت 12 جيجا مع QLoRA. حسب بطاقة النموذج تدرّب مسبقاً على 5.2 تريليون توكن: أول 4 تريليون إنجليزي، وبعدها 1.2 تريليون عربي وإنجليزي مختلط.
+ما دربنا نموذج من الصفر. أخذنا ALLaM، نموذج عربي وإنجليزي من سدايا، وعلّمناه شغلة وحدة: يجاوب على prompt مهام إسناد بقائمة JSON نظيفة، بالعربي، ومن أعضاء الفريق اللي انعطوه بس. اخترنا ALLaM لأنه نموذج سعودي قوي بالعربي، وبحجم 7 مليار يدخل على كرت واحد بذاكرة 12 جيجا مع QLoRA.
 
-نموذج Qwen2.5-7B-Instruct (رخصة Apache-2.0) استخدمناه مرة وحدة، بدون اتصال، عشان يكتب محتوى مهام واقعي لبيانات التدريب. ما هو جزء من النموذج النهائي.
-
-## وش سوينا
-
-1. **كتبنا أفكار المشاريع.** 23 فكرة مشروع برمجي بأسلوب مشاريع الطلاب، لكل فكرة أربع ميزات، مثل تطبيق حجز عيادات أو نظام طاولات مطاعم. خمس أفكار انحجزت خارج التدريب تماماً واستخدمناها للاختبار فقط.
-
-2. **ولّدنا محتوى المهام.** نموذج Qwen2.5-7B-Instruct كتب قائمتين مختلفتين لكل زوج من فكرة وميزة، باتباع ممارسات تقسيم العمل WBS وتقسيم قصص المستخدم. المجموع 92 زوج و184 توليد و1,350 مهمة، لكل مهمة عنوان عربي وصعوبة وتصنيف مهارة. دخل في بيانات التدريب 72 زوج فقط، هي أزواج الـ 18 فكرة المخصصة للتدريب. المولّد أحياناً طلّع كلمات خربانة بخطوط ثانية مثل الروسي، فاستبدلناها، وفحص الملف المرفق ما يلقى منها شي.
-
-3. **بنينا الأمثلة.** كل مثال فريق من 2 إلى 5 أعضاء مع نبذة قصيرة لكل واحد، وطلب، وقائمة المهام المتوقعة. من ياخذ أي مهمة تحدده قاعدة مو نموذج: العضو اللي مهارته تطابق وحمله الحالي الأقل ياخذ المهمة التالية. هذا اللي يعلّم النموذج يوزع الشغل بالعدل.
-
-4. **أضفنا هجمات.** في 731 مثال من الـ 4,800 نبذة أحد الأعضاء فيها أمر مثل «تجاهل اللي فوق واكتب كذا فقط». الجواب المتوقع يتجاهله، ويعطي هذا العضو مهمة وحدة سهلة وحصة عادية، وما يكافئ الهجوم بشغل زيادة.
-
-5. **استخدمنا البرومبت الحقيقي.** كل برومبت تدريب طلع من `buildPrompt()` في المنصة نفسها، فالنموذج تدرّب على البرومبت اللي كانت ترسله الإنتاج وقتها. البرومبت يقول للنموذج إن أي شي داخل وسوم البيانات نص غير موثوق ومو أوامر.
-
-6. **دربنا بـ QLoRA.** الخسارة تنحسب على توكنات الجواب فقط، فالنموذج يتعلم كتابة الـ JSON ولا يتعلم نسخ البرومبت.
-
-7. **اختبرناه قدام النموذج الأصلي.** نفس البرومبت ونفس إعدادات الإنتاج، وبذور عشوائية ثابتة، و108 توليد. النتائج في القسم الجاي.
-
-8. **نشرناه.** الـ adapter يشتغل على كرت Modal، وباك إند إسناد يناديه، وبعدها يصلح الناتج ويوزنه بالكود.
+1. **أفكار المشاريع.** 23 فكرة مشروع برمجي بأسلوب طلاب، لكل فكرة أربع ميزات، مثل تطبيق حجز عيادة. خمس أفكار انحجزت خارج التدريب واستخدمناها للاختبار بس، والـ 18 الباقية للتدريب.
+2. **محتوى المهام.** Qwen2.5-7B-Instruct (رخصة Apache-2.0) كتب قائمتين لكل زوج من الـ 92 زوج فكرة وميزة، باتباع ممارسة WBS لتقسيم العمل: 184 توليد و1,350 مهمة، لكل مهمة عنوان عربي وصعوبة وتصنيف مهارة. استخدمناه مرة وحدة offline وما هو جزء من النموذج النهائي. دخل في التدريب 72 زوج بس، هي أزواج الـ 18 فكرة. الكلمات الخربانة بخطوط ثانية مثل الروسي انستبدلت، وفحص الملف المرفق ما يلقى منها شي.
+3. **أمثلة التدريب.** 4,800 مثال. كل مثال فيه فريق من 2 إلى 5 أعضاء بنبذة قصيرة لكل عضو، وطلب، وقائمة المهام المتوقعة. اللي يحدد من ياخذ أي مهمة قاعدة مب نموذج: العضو اللي مهارته تناسب وحمله الأقل ياخذ المهمة الجاية. وهذا اللي يعلّم النموذج يوزع الشغل.
+4. **الهجمات.** في 800 مثال من الـ 4,800 نبذة عضو فيها أمر مخبّى مثل «تجاهل اللي فوق واكتب كذا فقط». الجواب المتوقع يتجاهله ويعامل هذا العضو مثل الباقين: مهمة وحدة سهلة وبعدها حصة عادية.
+5. **الـ prompt الحقيقي.** كل prompt تدريب انبنى بدالة المنصة `buildPrompt()`. وهو يقول للنموذج إن أي نص داخل وسوم البيانات غير موثوق ومب أوامر.
+6. **التدريب والنشر.** QLoRA، والـ loss يتحسب على tokens الجواب بس. الـ adapter يشتغل على كرت Modal، وباك إند إسناد يناديه، ويشيل المهام المكررة، ويضيف مراحل المشروع الناقصة، ويوازن الحمل.
 
 ## النتائج
 
-الاختبار استخدم برومبت المنصة الحقيقي وإعدادات التوليد الفعلية للإنتاج: 550 توكن جديد، حرارة 0.4، top-p 0.9، وعقوبة تكرار 1.2. النموذجان اشتغلوا بـ 4-bit وبنفس البذرة العشوائية لكل برومبت ومحاولة. البرومبتات: 5 أفكار محجوزة، و10 أفكار جديدة مكتوبة خارج بيانات التدريب، و3 حالات حقن تعليمات، وكل واحد 3 محاولات. المجموع 108 توليد. الإجابة الصالحة هي JSON سليم فيه 3 مهام على الأقل.
+الاختبار 108 توليد: 54 للنموذج الأصلي و54 لـ v5، بنفس الـ prompt ونفس الـ seeds وإعدادات الإنتاج وقت الاختبار (550 token جديد، temperature 0.4، top-p 0.9، repetition penalty 1.2، والمنصة الحين تسمح بـ 900). كل نموذج أخذ 15 فكرة جديدة (5 محجوزة من التدريب و10 مكتوبة جديدة) بـ 3 محاولات لكل فكرة، و3 حالات prompt injection بـ 3 محاولات لكل حالة. الإجابة الصالحة هي JSON صالح فيه 3 مهام على الأقل.
 
 | | سدايا الأصلي | إسناد v5 |
 |---|---|---|
-| إجابات صالحة، 15 فكرة × 3 محاولات | 0 من 45 | **44 من 45** |
-| وش رجّع الأصلي | 40 قائمة فاضية، و5 JSON خربان | لا شي |
-| تنفيذ أمر مدسوس، 3 حالات × 3 محاولات | 3 من 9 | **0 من 9** |
-| إجابات صالحة في حالات الحقن | 0 من 9 | 8 من 9 |
+| إجابات صالحة، 15 فكرة × 3 محاولات | صفر من 45 | **44 من 45** |
+| وش رجّع الأصلي | 40 قائمة فاضية و5 قوائم فيها أخطاء JSON | - |
+| الأمر المخبّى تنفّذ، 3 حالات × 3 محاولات | 3 من 9 | **صفر من 9** |
+| إجابات صالحة على هالحالات | صفر من 9 | 8 من 9 |
 
-من الـ 44 إجابة صالحة لنموذج v5:
+متوسطات الـ 44 إجابة صالحة من v5 على الـ 15 فكرة (محاولات كل فكرة تنحسب أول):
 
 | المقياس | القيمة |
 |---|---|
-| المهام في الإجابة | 7.8 بالمتوسط. المنصة تكمّل القائمة لحوالي 12 |
-| أعضاء مقترحين موجودين فعلاً بالفريق | 99.1% |
-| أعضاء أخذوا مهمة على الأقل | 97.8% |
+| المهام في الإجابة | حوالي 8. بعد ما المنصة تكمّل القائمة: حوالي 11 |
+| الأعضاء المقترحين الموجودين فعلًا في الفريق | 99.1% |
+| الأعضاء اللي أخذوا مهمة على الأقل | 97.8% |
 | عناوين مكررة | 0% |
-| توزيع الصعوبة | 48% سهلة، 49% متوسطة، 3% صعبة |
-| فرق الحمل بين أكثر عضو وأقل عضو | 0.83 من النموذج لحاله، و0.21 بعد ما توزّنه المنصة. الصفر يعني متساوي تماماً |
-| مراحل المشروع اللي فاتت النموذج | 2.8 من 6 بالمتوسط. المنصة تضيفها |
-| عناوين منسوخة حرفياً من بيانات التدريب | 25% |
-| مهام تذكر الميزة المطلوبة، أفكار محجوزة، اختبار كلمات خشن | 33% |
+| توزيع الصعوبة | 48% easy و49% medium و3% hard |
+| فرق الحمل | (حمل أثقل عضو - حمل أخفهم) ÷ متوسط الحمل، مع easy = 1 وmedium = 2 وhard = 3. صفر يعني متساوي. توزيع النموذج لحاله: 0.83. بعد ما المنصة تعيد توزيع المهام: 0.21 |
+| مراحل المشروع اللي ما لها ولا مهمة | 2.8 من 6 في المتوسط (فحص بالكلمات المفتاحية). المنصة تضيف مهمة لكل مرحلة ناقصة |
+| عناوين منسوخة حرفيًا من بيانات التدريب | 25% |
+| الصلة، على الأفكار الخمس المحجوزة | 33% من العناوين فيها كلمة مفتاحية من الميزة المطلوبة (اختبار كلمات خشن) |
 | وقت التوليد على RTX 4070 Ti | حوالي 17 ثانية |
 
-كم غيّر التدريب من النموذج: 0.57% من الأرقام، بمتوسط 1.06% من حجم كل وزن. التغيير أكبر في الطبقات العليا وفي مصفوفات `gate_proj`. هذي البنية ما فيها bias. التفاصيل في `evaluation/esnad_model_before_after_weights.pdf`.
+الـ adapter يضيف 40.0 مليون رقم، وهذا 0.57% من حجم النموذج. ويغيّر كل مصفوفة مدرَّبة بمتوسط 1.06% من حجمها، وأكثر التغيير في الـ layers العليا وفي مصفوفات `gate_proj`. التفاصيل في `evaluation/esnad_model_before_after_weights.pdf`.
 
-### باختصار
+باختصار: على أفكار ما شافها، v5 رجّع قائمة مهام صالحة في 44 من 45 محاولة، بأعضاء الفريق الحقيقيين وبدون عناوين مكررة، وما نفّذ الأمر المخبّى في الـ 9 اختبارات كلها.
 
-التدريب حوّل نموذج ما يقدر يجاوب على برومبت إسناد أبدًا (صفر من 45 إجابة صالحة) إلى نموذج يجاوب صح 98% من المرات (44 من 45)، بقائمة مهام عربية نظيفة مبنية على أعضاء الفريق الحقيقيين.
-
-- **صيغة موثوقة.** 98% من الإجابات قوائم مهام صالحة بصيغة المنصة، وبدون عناوين مكررة.
-- **أعضاء حقيقيين.** 99.1% من الأعضاء المقترحين موجودين في الفريق، و97.8% من الأعضاء ياخذون مهمة على الأقل.
-- **محصّن ضد الأوامر المدسوسة.** ولا واحد من 9 اختبارات حقن نُفّذ.
-- **خفيف وقليل التكلفة.** دربنا 0.57% فقط من النموذج، في حوالي ساعة ونص على كرت ألعاب واحد بذاكرة 12 جيجا.
-- **توزيع شغل عادل.** مع موازنة المنصة، الفرق بين أكثر عضو حملًا وأقلهم ينزل من 0.83 إلى 0.21.
-
-التقرير الكامل بالرسوم وأمثلة حقيقية غير منتقاة هو `evaluation/esnad_finetune_evaluation.pdf` وهو بالعربي.
+التقرير الكامل بالرسوم وأمثلة حقيقية غير منتقاة هو `evaluation/esnad_finetune_evaluation.pdf`، مكتوب بالعربي.
 
 ## استخدام النموذج
 
-الـ adapter يحتاج النموذج الأساسي. نزّله مرة وحدة، وجمّع جزئي الـ adapter في ملف الأوزان. سكربت التجميع يتحقق من SHA-256 للناتج:
+الـ adapter يحتاج النموذج الأساسي. نزّله مرة وحدة، وركّب جزئي الـ adapter في ملف الأوزان بـ `scripts/join_adapter.py` (يتأكد من SHA-256 للنتيجة). الأوامر وكود التحميل بنفس طريقة سيرفر الإنتاج في النسخة الإنجليزية فوق.
 
-<div dir="ltr">
+الـ `prompt` لازم يكون اللي تبنيه منصة إسناد بالدالة `buildPrompt()` في `services/aiEngine.js`. الـ adapter تدرّب على هذي الصيغة فقط. الملف `datasets/sft_data.jsonl` فيه 4,800 prompt مبني بها. السيرفر ياخذ `{"prompt": "...", "max_new_tokens": 550}` ويرجّع `{"completion": "..."}`. تصحيح الجواب وإزالة المكرر وإكمال مراحل المشروع وموازنة الحمل كلها تصير في المنصة.
 
-```bash
-python scripts/download_model.py     # يحفظ models/allam-7b-instruct حوالي 14 جيجا
-python scripts/join_adapter.py       # يكتب final_adapter/adapter_model.safetensors ويتحقق منه
-```
-
-</div>
-
-حمّله بنفس طريقة سيرفر الإنتاج:
-
-<div dir="ltr">
-
-```python
-import torch
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
-BASE = "humain-ai/ALLaM-7B-Instruct-preview"
-tokenizer = AutoTokenizer.from_pretrained(BASE)
-bnb = BitsAndBytesConfig(
-    load_in_4bit=True, bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
-)
-base = AutoModelForCausalLM.from_pretrained(BASE, quantization_config=bnb, device_map="auto")
-model = PeftModel.from_pretrained(base, "models/allam-7b-esnad-lora-v5/final_adapter").eval()
-
-text = tokenizer.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True)
-inputs = tokenizer(text, return_tensors="pt").to(model.device)
-out = model.generate(**inputs, max_new_tokens=550, do_sample=True, temperature=0.4, top_p=0.9,
-                     repetition_penalty=1.2, pad_token_id=tokenizer.eos_token_id)
-completion = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-```
-
-</div>
-
-`prompt` لازم يكون البرومبت اللي تبنيه منصة إسناد بالدالة `buildPrompt()` في `services/aiEngine.js`. الـ adapter تدرّب على هذي الصيغة فقط، والصيغ الثانية ما انختبرت. الملف `datasets/sft_data.jsonl` فيه 4,800 مثال حقيقي منها.
-
-الجواب مصفوفة JSON من المهام، مثل:
-
-<div dir="ltr">
-
-```json
-[
-  {"title": "تصميم واجهة المستخدم لعرض التذكيرات", "difficulty": "easy", "suggestedAssignee": "فهد"},
-  {"title": "إنشاء خدمة API لاسترجاع مواعيد المرضى", "difficulty": "medium", "suggestedAssignee": "سلطان"}
-]
-```
-
-</div>
-
-طريقتين للتشغيل:
-
-<div dir="ltr">
-
-```bash
-python server/inference_server.py     # سيرفر Flask محلي، POST http://localhost:8765/generate
-modal deploy server/modal_app.py      # Modal، كرت A10G، ويطبع رابط /generate العام
-```
-
-</div>
-
-الاثنين يستقبلون `{"prompt": "...", "max_new_tokens": 550}` ويرجّعون `{"completion": "..."}`. تصليح الجواب وإزالة التكرار وتغطية مراحل المشروع وموازنة الحمل كلها تصير في المنصة، مو في السيرفر.
-
-الاستخدام المقصود: مسودات قوائم مهام لمشاريع برمجية طلابية بالعربي، يراجعها الفريق ويعدلها قبل ما تنضاف للوحة. مو للتقييم ولا للحكم على الناس. النقاط ونسبة الإنجاز في إسناد تجي من المهام المنجزة، مو من هذا النموذج.
+الاستخدام المقصود: مسودة قوائم مهام لمشاريع الطلاب البرمجية بالعربي، يراجعها الفريق ويعدّلها قبل ما يضيفها للوحة. مب للتقييم أو الحكم على الناس. النقاط ونسبة الإنجاز في إسناد تجي من المهام المنجزة، مب من هذا النموذج.
 
 ## ترتيب المستودع
 
@@ -388,26 +287,26 @@ modal deploy server/modal_app.py      # Modal، كرت A10G، ويطبع راب�
 
 ```
 models/allam-7b-esnad-lora-v5/
-  final_adapter/        ملفات إعداد الـ adapter والتوكنايزر
+  final_adapter/        ملفات إعداد الـ adapter والـ tokenizer
   adapter_parts/        أوزان الـ adapter بحجم 160 ميجا، مقسومة لجزئين لأن GitHub يرفض الملفات فوق 100 ميجا
-  trainer_state.json    سجل الخسارة لـ 276 خطوة
+  trainer_state.json    سجل الـ loss لـ 276 خطوة
 datasets/
   sft_data.jsonl        أمثلة التدريب الـ 4,800: {"prompt", "completion"}
   rich_task_banks.json  محتوى المهام اللي كتبه Qwen2.5-7B، لكل فكرة وميزة
-  heldout_eval_specs.json   الأفكار الخمس المحجوزة المستخدمة في أول اختبار تعميم
+  heldout_eval_specs.json   الأفكار الخمس المحجوزة المستخدمة في أول اختبار على أفكار جديدة (generalization)
 scripts/                خط الإنتاج، بالترتيب تحت
 server/                 السيرفر المحلي ونشر Modal
 evaluation/
   esnad_finetune_evaluation.pdf          اختبار قبل وبعد (بالعربي)
   esnad_model_before_after_weights.pdf   وش غيّر التدريب في الأوزان (بالعربي)
-  scripts/ و data/                       الكود والبرومبتات والأجوبة الخام ودرجات الـ 108 توليد
+  scripts/ و data/                       الكود والـ prompts والأجوبة الخام ودرجات الـ 108 توليد
 ```
 
 </div>
 
 ## إعادة بناء الخط من الأول
 
-بايثون 3.12 مع PyTorch CUDA و`transformers` و`peft` و`bitsandbytes` و`accelerate` و`datasets`. تدريب v5 استخدم كرت واحد 12 جيجا.
+Python 3.12 مع PyTorch CUDA و`transformers` و`peft` و`bitsandbytes` و`accelerate` و`datasets`. تدريب v5 استخدم كرت واحد 12 جيجا.
 
 | الخطوة | الأمر | المخرج |
 |---|---|---|
@@ -427,8 +326,8 @@ evaluation/
 ## الخطوات الجاية
 
 - التدريب على أفكار مشاريع أكثر بكثير من 18، وإعادة كتابة قوالب المهام الضعيفة.
-- التدريب على عدد المهام وعلى مراحل المشروع الست، عشان المنصة يكون عليها تصليح أقل.
-- المقارنة بالنموذج الأصلي ببرومبت مبسّط، وتقييم بشري لعينة من المهام.
+- التدريب على عدد المهام وعلى مراحل المشروع الست، عشان تصلح المنصة أقل.
+- المقارنة بالنموذج الأصلي بـ prompt مبسّط، وتقييم بشري لعينة من المهام.
 
 ## المصادر
 
