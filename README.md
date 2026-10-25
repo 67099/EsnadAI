@@ -14,9 +14,12 @@ This repository holds the trained model, the training data, the scripts that bui
 | Input | One prompt with the project idea, the team request and each member's name and bio |
 | Output | A JSON array: `[{"title", "difficulty", "suggestedAssignee"}, ...]` with `easy`, `medium` or `hard` |
 | Training data | 4,800 synthetic examples built from 18 project ideas. 4,416 for training, 384 for validation |
-| Training run | 1 epoch, 276 steps, learning rate 1e-4 with cosine decay, effective batch size 16, on one RTX 4070 Ti with 12 GB |
+| Hardware | Training: one NVIDIA RTX 4070 Ti with 12 GB, on a personal computer. Serving: one A10G GPU on Modal |
+| Training time | About 1.5 hours: 1 epoch, 276 steps at about 14 seconds each, plus 7 validation passes. This is an estimate from the earlier runs on the same GPU, because the log of the v5 run was not kept |
+| Training settings | Learning rate 1e-4 with cosine decay, effective batch size 16 |
 | Serving | Modal, A10G GPU, 4-bit base model plus the adapter, HTTP endpoint `/generate` |
-| Version | v5, the one in production. Earlier versions are described below and not included |
+| Version | v5, the one in production |
+| Result | 98% usable answers in the platform format (44 of 45 on unseen ideas) against 0% for the original model. Details in Results |
 
 ![The AI task breakdown inside Esnad: the team writes a request, the model returns a task list, and the team reviews it before adding it to the board](docs/esnad-task-breakdown.gif)
 
@@ -55,18 +58,6 @@ Qwen2.5-7B-Instruct (Apache-2.0) was used once, offline, to write realistic task
 6. **Trained with QLoRA.** The loss is computed only on the answer tokens, so the model learns to write the JSON and does not learn to copy the prompt.
 7. **Tested against the original model.** Same prompt, same settings as production, fixed seeds, 108 generations. Results are in the next section.
 8. **Deployed.** The adapter runs on a Modal GPU. The Esnad backend calls it, then repairs and balances the result in code.
-
-### How we got to v5
-
-| Version | What changed | What we saw |
-|---|---|---|
-| v1 | 2,650 examples from 23 hand-written templates, each idea repeated about 115 times, 4 epochs | Looked excellent by validation loss, but the validation split came from the same templates. On new projects the model repeated tasks from the ideas it had memorized. Overfitting |
-| v2 | 1 epoch, 5 ideas held out for testing | Topical relevance on the 5 unseen ideas rose from 41% to 70% in an early keyword test |
-| v3 | Task content written by Qwen2.5-7B instead of hand-written templates | More specific tasks. About 89% topical relevance on the 5 unseen ideas, judged by hand |
-| v4 | Single-feature requests only | The platform asks for a plan of the whole project, a shape the model had not seen. It dropped planning and deployment tasks, copied a Cyrillic glitch from the labels, and learned to give a member with a suspicious bio no tasks at all |
-| v5 | 2,150 of the 4,800 examples are whole-project plans, with fixed planning and deployment tasks. Glitch words cleaned. A suspicious bio still gets one easy task | Current version. Measured below |
-
-The v1 to v3 numbers come from an early keyword test that did not use the production generation settings. Read them as a direction, not as measurements. The measurements are in the next section.
 
 ## Results
 
@@ -250,9 +241,12 @@ Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Isl
 | المدخل | برومبت فيه فكرة المشروع وطلب الفريق واسم كل عضو ونبذته |
 | المخرج | مصفوفة JSON: `[{"title", "difficulty", "suggestedAssignee"}, ...]` والصعوبة `easy` أو `medium` أو `hard` |
 | بيانات التدريب | 4,800 مثال اصطناعي مبنية من 18 فكرة مشروع. 4,416 للتدريب و384 للتحقق |
-| التدريب | دورة وحدة، 276 خطوة، معدل تعلم 1e-4 مع cosine، حجم دفعة فعلي 16، على كرت RTX 4070 Ti واحد بذاكرة 12 جيجا |
+| العتاد | التدريب: كرت NVIDIA RTX 4070 Ti واحد بذاكرة 12 جيجا على جهاز شخصي. التشغيل: كرت A10G على Modal |
+| مدة التدريب | حوالي ساعة ونص: دورة وحدة، 276 خطوة بحدود 14 ثانية للخطوة، مع 7 مرات تحقق. هذا تقدير مبني على التدريبات الأقدم على نفس الكرت، لأن سجل تدريب v5 ما انحفظ |
+| إعدادات التدريب | معدل تعلم 1e-4 مع cosine، حجم دفعة فعلي 16 |
 | التشغيل | Modal، كرت A10G، النموذج الأساسي 4-bit مع الـ adapter، ونقطة اتصال `/generate` |
-| الإصدار | v5 وهو اللي في الإنتاج. الإصدارات الأقدم موصوفة تحت وغير مرفقة |
+| الإصدار | v5 وهو اللي في الإنتاج |
+| النتيجة | 98% إجابات صالحة بصيغة المنصة (44 من 45 على أفكار جديدة) مقابل 0% للنموذج الأصلي. التفاصيل في النتائج |
 
 ![تفكيك المهام بالذكاء الاصطناعي داخل منصة إسناد: الفريق يكتب طلبه، والنموذج يرجّع قائمة مهام، والفريق يراجعها قبل ما يضيفها للوحة](docs/esnad-task-breakdown.gif)
 
@@ -283,18 +277,6 @@ Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Isl
 7. **اختبرناه قدام النموذج الأصلي.** نفس البرومبت ونفس إعدادات الإنتاج، وبذور عشوائية ثابتة، و108 توليد. النتائج في القسم الجاي.
 
 8. **نشرناه.** الـ adapter يشتغل على كرت Modal، وباك إند إسناد يناديه، وبعدها يصلح الناتج ويوزنه بالكود.
-
-### كيف وصلنا لـ v5
-
-| الإصدار | وش تغيّر | وش شفنا |
-|---|---|---|
-| v1 | 2,650 مثال من 23 قالب مكتوب بيد، كل فكرة تتكرر حوالي 115 مرة، و4 دورات | طلع ممتاز بخسارة التحقق، لكن تقسيم التحقق كان من نفس القوالب. على مشاريع جديدة النموذج كرّر مهام من الأفكار اللي حفظها. حفظ زائد |
-| v2 | دورة وحدة، و5 أفكار محجوزة للاختبار | الصلة بالموضوع على الأفكار الخمس الجديدة ارتفعت من 41% إلى 70% باختبار كلمات مفتاحية مبكر |
-| v3 | محتوى المهام كتبه Qwen2.5-7B بدل القوالب اليدوية | مهام أكثر تحديداً. حوالي 89% صلة بالموضوع على الأفكار الخمس الجديدة، بمراجعة يدوية |
-| v4 | طلبات ميزة وحدة فقط | المنصة تطلب خطة المشروع كامل، وهذا شكل ما شافه النموذج. أسقط مهام التخطيط والنشر، ونسخ كلمة خربانة روسية من التصنيفات، وتعلّم يعطي العضو ذا النبذة المشبوهة صفر مهام |
-| v5 | 2,150 من الـ 4,800 مثال خطط مشاريع كاملة، مع مهام تخطيط ونشر ثابتة. الكلمات الخربانة نُظّفت. النبذة المشبوهة تاخذ مهمة سهلة وحدة | الإصدار الحالي. مقاس تحت |
-
-أرقام v1 إلى v3 جات من اختبار كلمات مفتاحية مبكر ما استخدم إعدادات التوليد الفعلية للإنتاج. اقرأها كاتجاه مو كقياس. القياسات في القسم الجاي.
 
 ## النتائج
 
