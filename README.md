@@ -87,21 +87,21 @@ Among the 44 usable answers of v5:
 
 How much the training changed the model: 0.57% of the numbers, by an average of 1.06% of each weight's size. The change is largest in the upper layers and in the `gate_proj` matrices. There are no bias terms in this architecture. Details are in `evaluation/esnad_model_before_after_weights.pdf`.
 
-### What these results show, and what they do not
+### What the results mean
 
-They show that training turned a model that could not answer the platform prompt in the platform format into one that does it 98% of the time, in Arabic, with real team members, and that it did not follow the injected instructions we tried.
+**What they prove.** The original model could not answer the Esnad prompt at all: 0 of 45 usable answers. After training it answers correctly 98% of the time (44 of 45). The answer is a valid task list in Arabic, built from the real team members, and it ignored all the fake commands hidden in member bios that we tried (0 of 9 followed).
 
-They do not show that the model plans projects better than the original. The original returned no task list with this prompt, so there is nothing to compare task quality against. A fair comparison needs the original with a simplified prompt, and we did not run it.
+**What they do not prove.** They do not prove that our model plans a project better than the original one. The original gave no task list, so there was nothing to compare the quality of the tasks against. A fair comparison needs the original with a simpler prompt, and we did not run it.
 
-Known weaknesses:
+### Limits
 
-- **Narrow data.** All 4,800 examples come from 18 project ideas. A quarter of the titles are copied from the training data, and some do not make sense, for example a task about creating a "student" in a project that has no students.
-- **Short lists.** The model writes about 8 tasks, not the 12 to 20 a project needs. The platform fills the gap, so about 70% of the final tasks come from the model and the rest from the platform. After v5 was trained, the platform prompt was changed to ask for about 20 tasks. That moved the final list from 11.8 to 12.6 tasks only, because in the training data the size of the list follows how the request is worded, not an instruction about the count.
-- **Fairness is done by code.** The model's own split is uneven. Esnad balances it afterwards by difficulty weight, which also lowers how well tasks match each member's skills.
-- **Difficulty is an estimate.** The labels were written by Qwen2.5-7B, not by people, and nobody measured real task time. Only 3% of the answers use `hard`.
-- **Small test.** 18 prompts and 3 samples each. The confidence intervals are wide, for example 18% to 49% for the relevance score.
-- **No human review** of task quality, and no test on English-language ideas.
-- **Validation loss is not a quality measure.** The final value of 0.109 comes from a split of the same 18 ideas.
+- **Little variety in the data.** All 4,800 examples come from only 18 project ideas. A quarter of the titles are copied from the training data, and some make no sense, for example a task to create a "student" in a project that has no students.
+- **Short lists.** The model writes about 8 tasks, and a project needs 12 to 20. The platform adds the missing ones, so about 70% of the final tasks come from the model and the rest from the platform. We tried asking for 20 tasks in the prompt, and the final list only grew from 11.8 to 12.6 tasks. The model learned the size of a list from how the request is worded, not from a number.
+- **The fair split is done by code.** When the model divides the work, one member gets much more than another. The platform balances it by task difficulty, which makes the split fair but fits the tasks a little less to each member's skills.
+- **Difficulty is a guess.** The difficulty labels were written by Qwen2.5-7B, not by people, and nobody measured how long the tasks really take. Only 3% of the answers use `hard`.
+- **Small test.** 18 prompts with 3 samples each. With so few, the numbers can move a lot. For example the relevance score of 33% could really be anywhere between 18% and 49%.
+- **No human check.** Nobody judged the quality of the tasks, and the model was not tested on ideas written in English.
+- **Validation loss is not a quality score.** The final value of 0.109 only says how well the model predicts answers on examples like the ones it trained on. It comes from the same 18 ideas.
 
 The full report with figures and real, unselected examples is `evaluation/esnad_finetune_evaluation.pdf`, written in Arabic.
 
@@ -306,21 +306,21 @@ Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Isl
 
 كم غيّر التدريب من النموذج: 0.57% من الأرقام، بمتوسط 1.06% من حجم كل وزن. التغيير أكبر في الطبقات العليا وفي مصفوفات `gate_proj`. هذي البنية ما فيها bias. التفاصيل في `evaluation/esnad_model_before_after_weights.pdf`.
 
-### وش تقول هذي النتائج وش ما تقول
+### وش تعني النتائج
 
-تقول إن التدريب حوّل نموذج ما يقدر يرد على برومبت المنصة بصيغة المنصة، إلى نموذج يسويها 98% من المرات، بالعربي، بأعضاء فريق حقيقيين، وما نفّذ الأوامر المدسوسة اللي جرّبناها.
+**وش تثبت.** النموذج الأصلي ما كان يقدر يجاوب على برومبت إسناد أبدًا: صفر من 45 إجابة صالحة. بعد التدريب صار يجاوب صح 98% من المرات (44 من 45). الجواب قائمة مهام صالحة بالعربي، مبنية على أعضاء الفريق الحقيقيين، وما نفّذ أي أمر مزوّر مخبّى في نبذة عضو من اللي جرّبناها (صفر من 9 نفّذوها).
 
-ما تقول إن النموذج يخطط المشاريع أحسن من الأصلي. الأصلي ما رجّع قائمة مهام بهذا البرومبت، فما فيه شي نقارن عليه جودة المهام. المقارنة العادلة تحتاج الأصلي ببرومبت مبسّط، وما سويناها.
+**وش ما تثبت.** ما تثبت إن نموذجنا يخطط المشروع أحسن من الأصلي. الأصلي ما رجّع قائمة مهام أصلًا، فما كان فيه شي نقارن عليه جودة المهام. المقارنة العادلة تبغى الأصلي ببرومبت أبسط، وما سويناها.
 
-نقاط الضعف المعروفة:
+### الحدود
 
-- **بيانات ضيقة.** الـ 4,800 مثال كلها من 18 فكرة. ربع العناوين منسوخة من بيانات التدريب، وبعضها ما يركب، مثل مهمة إنشاء «طالب» في مشروع ما فيه طلاب.
-- **قوائم قصيرة.** النموذج يكتب حوالي 8 مهام مو 12 إلى 20 اللي يحتاجها المشروع. المنصة تسد الفرق، فحوالي 70% من المهام النهائية من النموذج والباقي من المنصة. بعد تدريب v5 غيّرنا برومبت المنصة يطلب حوالي 20 مهمة، وهذا حرّك القائمة النهائية من 11.8 إلى 12.6 مهمة فقط، لأن حجم القائمة في بيانات التدريب يتبع صياغة الطلب مو تعليمات العدد.
-- **العدل بالكود.** توزيع النموذج لحاله غير متوازن. إسناد يوازنه بعدين حسب وزن الصعوبة، وهذا يقلل شوي تطابق المهام مع مهارات كل عضو.
-- **الصعوبة تقدير.** التصنيفات كتبها Qwen2.5-7B مو بشر، وما أحد قاس وقت المهام الفعلي. 3% فقط من الإجابات تستخدم `hard`.
-- **اختبار صغير.** 18 برومبت و3 محاولات لكل واحد. فترات الثقة عريضة، مثلاً من 18% إلى 49% لمقياس الصلة.
-- **ما فيه مراجعة بشرية** لجودة المهام، ولا اختبار على أفكار بالإنجليزي.
-- **خسارة التحقق مو مقياس جودة.** قيمتها النهائية 0.109 جات من تقسيم من نفس الـ 18 فكرة.
+- **بيانات قليلة التنوع.** الـ 4,800 مثال كلها من 18 فكرة مشروع بس. ربع العناوين منسوخة من بيانات التدريب، وبعضها ما يركب، مثل مهمة إنشاء «طالب» في مشروع ما فيه طلاب.
+- **قوائم قصيرة.** النموذج يكتب حوالي 8 مهام، والمشروع يحتاج من 12 إلى 20. المنصة تكمّل الناقص، فحوالي 70% من المهام النهائية من النموذج والباقي من المنصة. جرّبنا نطلب 20 مهمة في البرومبت، والقائمة النهائية زادت من 11.8 إلى 12.6 مهمة بس. النموذج تعلّم حجم القائمة من صياغة الطلب، مب من رقم.
+- **العدل يجي من الكود.** لما النموذج يوزع الشغل، عضو ياخذ أكثر بكثير من عضو ثاني. المنصة توازنه بحسب صعوبة المهام، وهذا يخلي التوزيع عادل لكن يقلل شوي تطابق المهمة مع مهارة العضو.
+- **الصعوبة تخمين.** تصنيفات الصعوبة كتبها Qwen2.5-7B مب بشر، وما أحد قاس كم تاخذ المهام فعلًا. 3% فقط من الإجابات تستخدم `hard`.
+- **اختبار صغير.** 18 برومبت و3 محاولات لكل واحد. مع هالقلة الأرقام ممكن تتحرك كثير، مثلًا مقياس الصلة 33% ممكن فعلًا يكون بين 18% و49%.
+- **ما فيه مراجعة بشرية.** ما أحد حكّم على جودة المهام، والنموذج ما انختبر على أفكار مكتوبة بالإنجليزي.
+- **خسارة التحقق مب مقياس جودة.** قيمتها النهائية 0.109 تقول بس كم النموذج يتوقع الإجابات زين في أمثلة تشبه اللي تدرب عليها. وهي جات من نفس الـ 18 فكرة.
 
 التقرير الكامل بالرسوم وأمثلة حقيقية غير منتقاة هو `evaluation/esnad_finetune_evaluation.pdf` وهو بالعربي.
 
