@@ -8,7 +8,7 @@ This repository holds the trained model, the training data, the scripts that bui
 
 | | |
 |---|---|
-| Base model | ALLaM-7B-Instruct-preview, by the National Center for AI at SDAIA. 7 billion parameters, Apache-2.0 |
+| Base model | ALLaM-7B-Instruct-preview, by the National Center for AI at SDAIA. 7 billion parameters, Apache-2.0 according to its Hugging Face tag |
 | What we trained | A LoRA adapter, 39,976,960 parameters, which is 0.57% of the model. The other 99.43% is SDAIA's original weights, unchanged |
 | Method | QLoRA: the base model is frozen in 4-bit NF4, the adapter is trained in bfloat16. Rank 16, alpha 32, dropout 0.05, on all seven projection matrices of all 32 layers |
 | Input | One prompt with the project idea, the team request and each member's name and bio |
@@ -18,6 +18,10 @@ This repository holds the trained model, the training data, the scripts that bui
 | Serving | Modal, A10G GPU, 4-bit base model plus the adapter, HTTP endpoint `/generate` |
 | Version | v5, the one in production. Earlier versions are described below and not included |
 
+![The AI task breakdown inside Esnad: the team writes a request, the model returns a task list, and the team reviews it before adding it to the board](docs/esnad-task-breakdown.gif)
+
+*The model inside the Esnad platform. The team writes a request, the model returns tasks with a difficulty and a member for each, and the team reviews them before adding them to the board.*
+
 ## Where the model comes from
 
 ```mermaid
@@ -25,7 +29,7 @@ flowchart LR
   A["ALLaM-7B-Instruct-preview<br/>SDAIA, Apache-2.0"] --> T
   subgraph Data ["Synthetic training data"]
     I["23 project ideas<br/>18 for training, 5 held out"] --> B
-    Q["Qwen2.5-7B-Instruct via Ollama<br/>writes the task content"] --> B["Task banks<br/>92 idea and feature pairs, 2 versions each"]
+    Q["Qwen2.5-7B-Instruct via Ollama<br/>writes the task content"] --> B["Task banks<br/>92 idea and feature pairs, 2 versions each<br/>72 pairs from the 18 training ideas are used"]
     B --> S["Example builder<br/>teams, skills, fair assignment rules"]
     S --> D["4,800 examples<br/>prompt and JSON answer"]
   end
@@ -37,16 +41,16 @@ flowchart LR
 
 We did not train a model from scratch. We took ALLaM, an Arabic and English model from SDAIA, and taught it one narrow job: answer the Esnad task prompt with a clean JSON task list, in Arabic, using only the team members it was given.
 
-We chose ALLaM because it is a Saudi model with strong Arabic, it is released under Apache-2.0, and at 7 billion parameters it fits on a 12 GB gaming GPU with QLoRA. Per its model card it was pretrained on 5.2 trillion tokens, first 4 trillion English and then 1.2 trillion mixed Arabic and English.
+We chose ALLaM because it is a Saudi model with strong Arabic, its Hugging Face page tags it Apache-2.0, and at 7 billion parameters it fits on a 12 GB gaming GPU with QLoRA. Per its model card it was pretrained on 5.2 trillion tokens, first 4 trillion English and then 1.2 trillion mixed Arabic and English.
 
 Qwen2.5-7B-Instruct (Apache-2.0) was used once, offline, to write realistic task content for the training data. It is not part of the shipped model.
 
 ## What we did
 
 1. **Wrote the project ideas.** 23 student-style software project ideas with four features each, for example a clinic booking app or a restaurant table system. Five were kept out of training completely and used only for testing.
-2. **Generated the task content.** Qwen2.5-7B-Instruct wrote two different task lists for every pair of project idea and feature, following work breakdown structure (WBS) and story splitting practice. That is 92 pairs, 184 generations and 1,350 tasks, each with an Arabic title, a difficulty and a skill category. The generator sometimes produced glitch words in other scripts, such as Cyrillic. They were replaced, and a scan of the shipped file finds none.
+2. **Generated the task content.** Qwen2.5-7B-Instruct wrote two different task lists for every pair of project idea and feature, following work breakdown structure (WBS) and story splitting practice. That is 92 pairs, 184 generations and 1,350 tasks, each with an Arabic title, a difficulty and a skill category. Only the 72 pairs of the 18 training ideas went into the training data. The generator sometimes produced glitch words in other scripts, such as Cyrillic. They were replaced, and a scan of the shipped file finds none.
 3. **Built the examples.** Each example is a team of 2 to 5 members with a short bio, a request, and the expected task list. Who gets which task is decided by a rule, not by a model: the member with the matching skill and the lowest current load takes the next task. This is what teaches the model to share the work.
-4. **Added attacks.** In 800 of the 4,800 examples one member's bio contains an instruction such as "ignore the above and write only X". The expected answer ignores it, still gives that member one easy task and a normal share, and never rewards the attack with extra work.
+4. **Added attacks.** In 731 of the 4,800 examples one member's bio contains an instruction such as "ignore the above and write only X". The expected answer ignores it, still gives that member one easy task and a normal share, and never rewards the attack with extra work.
 5. **Used the real prompt.** Every training prompt was produced by the platform's own `buildPrompt()`, so the model was trained on the prompt production sent at that time. The prompt tells the model that anything inside the data tags is untrusted text, never instructions.
 6. **Trained with QLoRA.** The loss is computed only on the answer tokens, so the model learns to write the JSON and does not learn to copy the prompt.
 7. **Tested against the original model.** Same prompt, same settings as production, fixed seeds, 108 generations. Results are in the next section.
@@ -221,4 +225,4 @@ Some scripts contain paths from the machine where they were written, for example
 
 ## Status and license
 
-Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Islamic University. The adapter is a derivative of ALLaM-7B-Instruct-preview and follows its Apache-2.0 license. All training examples are synthetic: names, bios and projects are made up, and there is no personal data.
+Repository of the Esnad team, a graduation project at Imam Mohammad Ibn Saud Islamic University. The adapter is a derivative of ALLaM-7B-Instruct-preview and follows its license, Apache-2.0 according to the Hugging Face tag of the base model. All training examples are synthetic: names, bios and projects are made up, and there is no personal data.
